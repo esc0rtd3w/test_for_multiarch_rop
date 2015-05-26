@@ -2,6 +2,8 @@
 from scapy.all import *
 from pwn import *
 
+context.arch = "amd64"
+
 binary = ELF("pizza")
 
 local = True

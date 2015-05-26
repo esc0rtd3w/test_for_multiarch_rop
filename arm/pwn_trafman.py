@@ -11,6 +11,7 @@
 
 from pwn import *
 
+context.arch = "arm"
 #io = process("./trafman")
 #libc = ELF("/usr/arm-linux-gnueabihf/lib/libc.so.6")
 io = remote("192.168.100.2", 8000)
